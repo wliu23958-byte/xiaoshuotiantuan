@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 本机 MCP 通道配置：端口与通道号每台机器不同，clone 下来也用不上
+.cursor/mcp.json
+.cursor/idp-mcp.settings.json
