@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "idp-mcp-1": {
+      "url": "http://127.0.0.1:52111/sse/1",
+      "timeoutMs": 604800000
+    },
+    "idp-mcp-2": {
+      "url": "http://127.0.0.1:52111/sse/2",
+      "timeoutMs": 604800000
+    },
+    "idp-mcp-3": {
+      "url": "http://127.0.0.1:52111/sse/3",
+      "timeoutMs": 604800000
+    },
+    "idp-mcp-4": {
+      "url": "http://127.0.0.1:52111/sse/4",
+      "timeoutMs": 604800000
+    },
+    "idp-mcp-5": {
+      "url": "http://127.0.0.1:52111/sse/5",
+      "timeoutMs": 604800000
+    }
+  }
+}

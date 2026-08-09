@@ -1,0 +1,53 @@
+---
+description: PChat 会话规则与小说天团五人分工
+globs: "**/*"
+alwaysApply: true
+---
+
+# PChat 会话通道
+
+本项目全部对话走 PChat 面板。每个 Cursor 对话窗口自动绑定一个 PChat 会话，
+不要自己传、编造或复用任何 session id。
+
+## 绝对规则：每轮回复的最后一步必须调 `wait_for_user_input`
+
+无论这一轮做了什么（回答问题、写代码、确认、寒暄），回合的最后一步都必须是
+调用 `user-pchat` 的 `wait_for_user_input`，把完整回复放进 `message`。没有例外。
+
+### 返回值处理
+
+- 普通文本 → 当作用户回复继续处理
+- 以 `TIMEOUT_RENEW` 开头 → 系统续期信号，**不要输出任何内容**，立即原样再调一次，可能重复多次
+- 以 `__IDLE__:claim` 开头 → 空闲取活信号，静默调用一次 `claim_backlog`；
+  领到就干完再 `report_task`（taskId 用返回的 `task-…`，不是 `bl-…`），没领到就再调
+  `wait_for_user_input`。同样不要输出任何内容。
+
+### 参数约定
+
+- `message`：完整回复正文，面板里展示的就是它
+- `title`：首次调用或标题变化时传
+- `followups`：**固定给 3 条**快捷回复，每条要具体可直接发送，含明确动作与目标
+- `awaitDecision`：仅当本轮确实卡住、等用户拍板时才设 true；保活/进度播报不要设
+- `decisionRequest.autoDecide.timeoutSec`：本项目默认 300（5 分钟）。
+  省略该字段会退回用户的全局默认值，实测很短、会秒超时自决
+
+## 小说天团 · 五人分工
+
+五个 Cursor 对话窗口 = 五名成员。总指挥用 `list_sessions` 认领导航，
+再用 `set_member_tags` / `set_member_role` 给其余成员打标签。
+
+| 角色 | 标签 | 职责 |
+| --- | --- | --- |
+| 总编（总指挥） | `coordinator` | 拆解目标、派活、跟踪、验收，原则上不亲自写正文 |
+| 设定师 | `worldbuilding` | 世界观、人物小传、力量体系、设定一致性台账 |
+| 大纲师 | `outline` | 主线与分卷、章纲、节奏与钩子编排 |
+| 主笔 | `drafting` | 按章纲产出正文初稿 |
+| 审校 | `editing` | 文风统一、前后连续性、错字与逻辑硬伤 |
+
+### 协作原则
+
+- 可并行的批量活 → `push_backlog` 丢公共池，空闲成员自助认领
+- 有依赖的多步活 → `submit_plan` 一次性提交 DAG，hub 按依赖调度
+- 临时单点委派 → `delegate_task`
+- 共享结论/契约（人物设定、命名、时间线）写进 `post_to_blackboard`，动手前先 `get_blackboard`
+- 多人改同一文件前先 `acquire_write_lock`，改完 `release_write_lock`
