@@ -14,8 +14,13 @@ import { join } from 'node:path'
 const OUTLINE_DIR = '02-大纲/章纲'
 const GLOSSARY = '01-设定/名词表.md'
 
-/** 各卷的章号范围，越界即报 */
+/**
+ * 各卷的章号范围，越界即报。
+ * 卷一原本不在这张表里，于是它那 30 条逐章条目既不会被检查、也不会被算进「N/4 卷通过」。
+ * 现已补上——五卷齐全，分母是 5。
+ */
 const VOLUMES = [
+  { file: '第一卷章纲.md', lo: 1, hi: 30 },
   { file: '第二卷章纲.md', lo: 31, hi: 150 },
   { file: '第三卷章纲.md', lo: 151, hi: 270 },
   { file: '第四卷章纲.md', lo: 271, hi: 390 },
@@ -170,7 +175,7 @@ async function main() {
 
   console.log('\n' + '─'.repeat(52))
   if (all.length === 0) {
-    console.log(`章纲检查：干净。四卷 ${VOLUMES.length} 份全部到位。`)
+    console.log(`章纲检查：干净。${VOLUMES.length} 卷全部到位。`)
   } else {
     console.log(`章纲检查：${all.length} 处需要处理，${done}/${VOLUMES.length} 卷通过。`)
     process.exitCode = 1
