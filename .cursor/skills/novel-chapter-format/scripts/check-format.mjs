@@ -35,7 +35,8 @@ async function listChapters(root) {
       }
       continue
     }
-    if (!entry.isDirectory()) continue
+    // 下划线开头的目录在这个仓库里表示「不是正常内容」（_加厚暂存 那种暂存区）
+    if (!entry.isDirectory() || entry.name.startsWith('_')) continue
     for (const sub of await readdir(join(root, entry.name), { withFileTypes: true })) {
       if (!sub.isFile() || !sub.name.endsWith('.md') || sub.name === BOOK_FILE) continue
       out.push({ dir: entry.name, file: sub.name, rel: `${entry.name}/${sub.name}` })
