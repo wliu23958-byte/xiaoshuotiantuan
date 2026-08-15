@@ -72,9 +72,11 @@ function rustOf(body) {
       hits.push({ line: line.trim(), value: nums[nums.length - 1], all: nums })
       continue
     }
-    const hasPair = /(\d+(?:\.\d+)?)\s*%\s*(?:→|->|至)/.test(line)
-    if (/结算/.test(line) && /回退/.test(line) && nums.length === 1 && !hasPair) {
-      hits.push({ line: line.trim(), delta: -nums[0], all: nums })
+    // 抓「退了 X%」这个说法本身，不要去数这一行有几个百分数——同一句里还会写
+    // 「每放出一位退 0.3~0.5%」这类档位说明，按个数判会被它带偏
+    if (/结算/.test(line) && /回退/.test(line)) {
+      const retreat = /退了\s*\**\s*(\d+(?:\.\d+)?)\s*%/.exec(line)
+      if (retreat) hits.push({ line: line.trim(), delta: -Number(retreat[1]), all: nums })
     }
   }
   return hits
