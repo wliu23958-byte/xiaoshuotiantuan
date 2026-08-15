@@ -12,6 +12,16 @@ const OUTLINE_DIR = '02-大纲/章纲'
 const MYSTERY = '02-大纲/谜团台账.md'
 const CAP = 30 // 沾锈上限，过了就成器
 
+/**
+ * 设计内的两次血条回退。除这两处之外的任何一次下降都是硬伤。
+ * 原先这一节只印一句话说「有几处回退是设计内的」，读的人得自己拿眼睛核——
+ * 真出现一次计划外的回退，长得跟这两处一模一样，不会有人发现。
+ */
+const PLANNED_DROPS = [
+  { from: 456, to: 458, why: '放妘出来，退掉一个人的账' },
+  { from: 496, to: 497, why: '结局，锈褪至 0' },
+]
+
 const VOLS = [
   { cn: '一', file: '第一卷章纲.md', lo: 1, hi: 30, open: 0, close: 3.0 },
   { cn: '二', file: '第二卷章纲.md', lo: 31, hi: 150, open: 3.0, close: 9.4 },
@@ -43,15 +53,43 @@ function splitChapters(text) {
   })
 }
 
-/** 抓「沾锈」那一行上的百分数，取最后一个（A% → B% 的写法要取 B） */
+/**
+ * 抓一章里的沾锈结算点。两种写法：
+ *   绝对值——带「沾锈」二字的行，取最后一个百分数（A% → B% 要取 B）
+ *   增减量——回退那一章写的是「那块锈**退了 0.4%**」，只给了退多少、没给退到多少，
+ *            句里还没有「沾锈」二字，于是全书唯一一次血条回退整个从链上漏掉了。
+ * 判据卡得很死（同时要有「结算」「回退」、且只有一个百分数、且没有 A%→B% 对），
+ * 否则讲规则的段落里那些 29%、+2% 会被一起卷进来，凭空造出一堆假结算点。
+ */
 function rustOf(body) {
   const hits = []
   for (const line of body.split('\n')) {
-    if (!/沾锈/.test(line)) continue
     const nums = [...line.matchAll(/(\d+(?:\.\d+)?)\s*%/g)].map((m) => Number(m[1]))
-    if (nums.length) hits.push({ line: line.trim(), value: nums[nums.length - 1], all: nums })
+    if (!nums.length) continue
+    if (/沾锈/.test(line)) {
+      hits.push({ line: line.trim(), value: nums[nums.length - 1], all: nums })
+      continue
+    }
+    const hasPair = /(\d+(?:\.\d+)?)\s*%\s*(?:→|->|至)/.test(line)
+    if (/结算/.test(line) && /回退/.test(line) && nums.length === 1 && !hasPair) {
+      hits.push({ line: line.trim(), delta: -nums[0], all: nums })
+    }
   }
   return hits
+}
+
+/** 把一卷的结算点摊成绝对值序列。增减量型的点按前一个绝对值推算，并标记出来 */
+function settlementsOf(text, open) {
+  let running = open
+  const out = []
+  for (const c of splitChapters(text)) {
+    for (const h of rustOf(c.body)) {
+      const value = h.delta === undefined ? h.value : Number((running + h.delta).toFixed(1))
+      running = value
+      out.push({ num: c.num, value, derived: h.delta !== undefined })
+    }
+  }
+  return out
 }
 
 /** 启发式：这一章像不像发生了一次入器 */
@@ -107,12 +145,9 @@ async function main() {
   for (const v of VOLS) {
     if (!present.has(v.file)) { console.log(`  ${v.cn}   ${v.file} 不存在`); continue }
     const text = await readText(`${OUTLINE_DIR}/${v.file}`)
-    const marks = []
-    for (const c of splitChapters(text)) {
-      for (const h of rustOf(c.body)) marks.push({ num: c.num, value: h.value, all: h.all })
-    }
+    const marks = settlementsOf(text, v.open)
     const last = marks.length ? marks[marks.length - 1].value : null
-    const desc = marks.map((m) => `${m.num}:${m.value}%`).join(' ')
+    const desc = marks.map((m) => `${m.num}:${m.value}%${m.derived ? '*' : ''}`).join(' ')
     const ok = last !== null && Math.abs(last - v.close) < 0.001
     if (prevClose !== null && Math.abs(prevClose - v.open) > 0.001) {
       issues.push(`卷${v.cn} 开卷 ${v.open}% 与上一卷收卷 ${prevClose}% 接不上`)
@@ -127,14 +162,19 @@ async function main() {
   for (const v of VOLS) {
     if (!present.has(v.file)) continue
     const text = await readText(`${OUTLINE_DIR}/${v.file}`)
-    for (const c of splitChapters(text)) {
-      for (const h of rustOf(c.body)) all.push({ num: c.num, value: h.value })
-    }
+    all.push(...settlementsOf(text, v.open))
   }
   all.sort((a, b) => a.num - b.num)
   const drops = []
   for (let i = 1; i < all.length; i++) {
-    if (all[i].value < all[i - 1].value) drops.push(`第 ${all[i - 1].num} 章 ${all[i - 1].value}% → 第 ${all[i].num} 章 ${all[i].value}%`)
+    if (all[i].value >= all[i - 1].value) continue
+    const from = all[i - 1]
+    const to = all[i]
+    const planned = PLANNED_DROPS.find((p) => p.from === from.num && p.to === to.num)
+    drops.push({ from, to, planned })
+    if (!planned) {
+      issues.push(`第 ${from.num} 章 ${from.value}% 回退到第 ${to.num} 章 ${to.value}%，不在计划内的回退`)
+    }
   }
   if (all.length === 0) {
     // Math.max() 对空数组给 -Infinity，余量那一行会打印成 Infinity，像是脚本自己疯了
@@ -142,10 +182,19 @@ async function main() {
     issues.push('章纲里没有任何沾锈结算点，沾锈链核对不了')
   } else {
     const peak = Math.max(...all.map((a) => a.value))
+    const derived = all.filter((a) => a.derived).length
     console.log(`\n  峰值 ${peak}%，上限 ${CAP}%，余量 ${(CAP - peak).toFixed(1)} 个百分点。`)
-    console.log(`  结算点共 ${all.length} 个。回退 ${drops.length} 处：`)
-    for (const d of drops) console.log(`    ${d}`)
-    console.log('  说明：卷五结局褪至 0 是设计内的，第四部分那次 −0.4% 也是（全书第一次血条回退）。')
+    console.log(`  结算点共 ${all.length} 个${derived ? `，其中 ${derived} 个标 * 的是按增减量推算的（章纲只写了退多少，没写退到多少）` : ''}。`)
+    console.log(`  回退 ${drops.length} 处：`)
+    for (const d of drops) {
+      const tail = d.planned ? d.planned.why : '★ 计划外，这是硬伤'
+      console.log(`    第 ${d.from.num} 章 ${d.from.value}% → 第 ${d.to.num} 章 ${d.to.value}%   ${tail}`)
+    }
+    for (const p of PLANNED_DROPS) {
+      if (drops.some((d) => d.planned === p)) continue
+      console.log(`    ★ 计划内的 ${p.from}→${p.to}（${p.why}）没在链上出现`)
+      issues.push(`计划内的回退 ${p.from}→${p.to} 没能从章纲里解析出来`)
+    }
   }
 
   // ── 二、入器次数（启发式） ────────────────────────
