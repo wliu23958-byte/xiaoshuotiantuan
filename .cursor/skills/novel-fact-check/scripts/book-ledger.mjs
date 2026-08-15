@@ -168,28 +168,35 @@ async function main() {
   // ── 三、谜团存量 ────────────────────────────────
   console.log('\n\n三、谜团存量')
   console.log('-'.repeat(76))
-  let md
-  try { md = await readText(MYSTERY) } catch { console.log('  读不到谜团台账'); return }
-
-  const groups = ['A 组 · 主线与身份', 'B 组 · 沈鹤年', 'C 组 · 规则', 'D 组 · 工具箱盖', 'E 组 · 姜宁', 'F 组 · 周维', 'G 组 · 名单']
-  const rows = []
-  for (const g of groups) for (const r of tableRows(md, g)) rows.push(r)
+  let md = null
+  try { md = await readText(MYSTERY) } catch { /* 记成欠账，不能就这么走人 */ }
 
   const openItems = []
-  console.log('\n  编号  解答章                     状态')
-  for (const cells of rows) {
-    const id = plain(cells[0])
-    const answer = plain(cells[4])
-    // 只认「NNN~NNN」区间与独立的两位以上数字；「支线 9」「与 D1 合并」里那些小数字不算章号
-    const spans = [...answer.matchAll(/(\d{1,3})\s*[~～-]\s*(\d{1,3})/g)].map((m) => [Number(m[1]), Number(m[2])])
-    const singles = [...answer.matchAll(/(?<![\d~～-])(\d{2,3})(?![\d~～-])/g)].map((m) => Number(m[1]))
-    const nums = [...spans.flat(), ...singles].filter((n) => n >= 1 && n <= 500)
-    const settled = nums.length > 0
-    if (!settled) openItems.push(`${id}：解答栏「${answer}」只给了卷次，没有章号——按台账自己的规则三，这是欠账`)
-    const flag = settled ? `落在 ${Math.min(...nums)}${Math.max(...nums) !== Math.min(...nums) ? `~${Math.max(...nums)}` : ''}` : '★ 只有卷次'
-    console.log(`  ${id.padEnd(5)} ${answer.slice(0, 26).padEnd(28)}${flag}`)
+  if (md === null) {
+    // 这里原先直接 return，于是台账还没建起来的仓库跑完退码是 0。
+    // 静默通过比报错危险得多：调用方会以为总账已经核过了。
+    console.log(`  读不到谜团台账 ${MYSTERY}，这一节没核对。`)
+    openItems.push(`读不到谜团台账 ${MYSTERY}，谜团存量没核对`)
+  } else {
+    const groups = ['A 组 · 主线与身份', 'B 组 · 沈鹤年', 'C 组 · 规则', 'D 组 · 工具箱盖', 'E 组 · 姜宁', 'F 组 · 周维', 'G 组 · 名单']
+    const rows = []
+    for (const g of groups) for (const r of tableRows(md, g)) rows.push(r)
+
+    console.log('\n  编号  解答章                     状态')
+    for (const cells of rows) {
+      const id = plain(cells[0])
+      const answer = plain(cells[4])
+      // 只认「NNN~NNN」区间与独立的两位以上数字；「支线 9」「与 D1 合并」里那些小数字不算章号
+      const spans = [...answer.matchAll(/(\d{1,3})\s*[~～-]\s*(\d{1,3})/g)].map((m) => [Number(m[1]), Number(m[2])])
+      const singles = [...answer.matchAll(/(?<![\d~～-])(\d{2,3})(?![\d~～-])/g)].map((m) => Number(m[1]))
+      const nums = [...spans.flat(), ...singles].filter((n) => n >= 1 && n <= 500)
+      const settled = nums.length > 0
+      if (!settled) openItems.push(`${id}：解答栏「${answer}」只给了卷次，没有章号——按台账自己的规则三，这是欠账`)
+      const flag = settled ? `落在 ${Math.min(...nums)}${Math.max(...nums) !== Math.min(...nums) ? `~${Math.max(...nums)}` : ''}` : '★ 只有卷次'
+      console.log(`  ${id.padEnd(5)} ${answer.slice(0, 26).padEnd(28)}${flag}`)
+    }
+    console.log(`\n  共 ${rows.length} 条谜团。`)
   }
-  console.log(`\n  共 ${rows.length} 条谜团。`)
 
   // ── 结论 ───────────────────────────────────────
   console.log('\n' + '='.repeat(76))

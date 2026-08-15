@@ -70,6 +70,18 @@ async function listContent() {
 
 const BODY_LIMIT = 2_000_000
 
+/** 请求体自己的毛病该由请求体的状态码说清楚，不该一律糊成 500 */
+class BodyError extends Error {
+  status: number
+  /** 请求体读完了没。没读完就提前回话的话，这条连接是废的，得让客户端别再用 */
+  drained: boolean
+  constructor(status: number, message: string, drained = true) {
+    super(message)
+    this.status = status
+    this.drained = drained
+  }
+}
+
 function readBody(req: Connect.IncomingMessage) {
   return new Promise<unknown>((done, fail) => {
     // 攒 Buffer 而不是 raw += chunk：后者按分片逐个解码，一个汉字正好被切在分片
@@ -87,7 +99,7 @@ function readBody(req: Connect.IncomingMessage) {
         stopped = true
         chunks.length = 0
         req.pause()
-        fail(new Error('请求体过大'))
+        fail(new BodyError(413, '请求体过大', false))
         return
       }
       chunks.push(chunk)
@@ -97,7 +109,7 @@ function readBody(req: Connect.IncomingMessage) {
       try {
         done(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'))
       } catch {
-        fail(new Error('请求体不是合法 JSON'))
+        fail(new BodyError(400, '请求体不是合法 JSON'))
       }
     })
     req.on('error', fail)
@@ -166,6 +178,12 @@ function contentWriter(): Plugin {
             res.setHeader('Content-Type', 'application/json')
             res.end('{"ok":true}')
           } catch (error) {
+            if (error instanceof BodyError) {
+              // 剩下的请求体永远不会被读走，这条连接不能留给下一个请求复用，
+              // 否则客户端从连接池里摸到它就是一个 ECONNRESET
+              if (!error.drained) res.setHeader('Connection', 'close')
+              return fail(error.status, error.message)
+            }
             fail(500, error instanceof Error ? error.message : '写入失败')
           }
         })()
