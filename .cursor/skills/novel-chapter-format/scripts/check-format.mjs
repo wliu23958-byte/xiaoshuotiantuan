@@ -11,9 +11,38 @@ const CONTENT_DIR = dirArg ? dirArg.slice('--dir='.length) : '03-正文'
 
 const SCENE_BREAK = '※　※　※'
 const IDEOGRAPHIC_SPACE = '\u3000'
+const BOOK_FILE = '_book.md'
 
 /** BOM 会粘在首行开头，让 frontmatter 的 --- 与「# 第N章」双双失配，报一堆假的结构问题 */
 const readText = async (path) => (await readFile(path, 'utf8')).replace(/^\uFEFF/, '')
+
+const byName = (a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true })
+
+/**
+ * 内容目录是两层：顶层的 .md 属于「平铺作品」，一层子目录各自是一部作品。
+ * 层数与 `src/lib/content.ts` 的加载器对齐，再深一层加载器就不认了，这里也不认。
+ *
+ * 早先这里只 readdir 一层，于是**凡是从应用里新建的作品全在检查之外**——
+ * addNovel 一定会给它建一个子目录，而这个脚本一眼都不会看那里面。
+ * 现在没出事只是因为《合缝》是平铺的。
+ */
+async function listChapters(root) {
+  const out = []
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (entry.isFile()) {
+      if (entry.name.endsWith('.md') && entry.name !== BOOK_FILE) {
+        out.push({ dir: '', file: entry.name, rel: entry.name })
+      }
+      continue
+    }
+    if (!entry.isDirectory()) continue
+    for (const sub of await readdir(join(root, entry.name), { withFileTypes: true })) {
+      if (!sub.isFile() || !sub.name.endsWith('.md') || sub.name === BOOK_FILE) continue
+      out.push({ dir: entry.name, file: sub.name, rel: `${entry.name}/${sub.name}` })
+    }
+  }
+  return out.sort((a, b) => byName(a.dir, b.dir) || byName(a.file, b.file))
+}
 
 const DECORATION_RULES = [
   {
@@ -71,49 +100,59 @@ function parseHeading(line) {
   return matched ? { chapter: matched[1], gap: matched[2], title: matched[3] } : null
 }
 
-function structureIssues(files, contents) {
+/** 序号连续与重复是一部作品之内的事，两部作品各有一个第 1 章不是错，所以按目录分组查 */
+function structureIssues(chapters, contents) {
   const issues = []
-  const seen = new Map()
-
-  for (const file of files) {
-    const parsed = parseFileName(file)
-    if (!parsed) {
-      issues.push(`${file}：文件名不符合「第NNN章-标题.md」，序号要三位补零`)
-      continue
-    }
-    if (seen.has(parsed.seq)) {
-      issues.push(`第 ${parsed.seq} 章序号重复：${seen.get(parsed.seq)} 与 ${file}`)
-    }
-    seen.set(parsed.seq, file)
-
-    const lines = contents.get(file).split('\n')
-    const hasFrontmatter = frontmatterEnd(lines) > 0
-
-    if (hasFrontmatter) {
-      if (!lines.some((l) => /^标题\s*[:：]/.test(l))) {
-        issues.push(`${file}：有 frontmatter 但缺 标题 字段`)
-      }
-      continue
-    }
-
-    const heading = parseHeading(lines[0])
-    if (!heading) {
-      issues.push(`${file}：首行不是「# 第N章　标题」，也没有 frontmatter`)
-      continue
-    }
-    if (!heading.gap.includes(IDEOGRAPHIC_SPACE)) {
-      issues.push(`${file}：标题里「${heading.chapter}」和「${heading.title}」之间要用全角空格`)
-    }
-    if (heading.title !== parsed.title) {
-      issues.push(`${file}：文件名的「${parsed.title}」与标题的「${heading.title}」对不上`)
-    }
+  const byDir = new Map()
+  for (const c of chapters) {
+    if (!byDir.has(c.dir)) byDir.set(c.dir, [])
+    byDir.get(c.dir).push(c)
   }
 
-  const nums = [...seen.keys()].sort((a, b) => a - b)
-  for (let i = 1; i < nums.length; i++) {
-    const gap = nums[i] - nums[i - 1]
-    if (gap > 1) {
-      issues.push(`第 ${nums[i - 1]} 章与第 ${nums[i]} 章之间断号，缺 ${gap - 1} 章`)
+  for (const [dir, group] of byDir) {
+    const where = dir ? `${dir}/` : ''
+    const seen = new Map()
+
+    for (const c of group) {
+      const parsed = parseFileName(c.file)
+      if (!parsed) {
+        issues.push(`${c.rel}：文件名不符合「第NNN章-标题.md」，序号要三位补零`)
+        continue
+      }
+      if (seen.has(parsed.seq)) {
+        issues.push(`${where}第 ${parsed.seq} 章序号重复：${seen.get(parsed.seq)} 与 ${c.file}`)
+      }
+      seen.set(parsed.seq, c.file)
+
+      const lines = contents.get(c.rel).split('\n')
+      const hasFrontmatter = frontmatterEnd(lines) > 0
+
+      if (hasFrontmatter) {
+        if (!lines.some((l) => /^标题\s*[:：]/.test(l))) {
+          issues.push(`${c.rel}：有 frontmatter 但缺 标题 字段`)
+        }
+        continue
+      }
+
+      const heading = parseHeading(lines[0])
+      if (!heading) {
+        issues.push(`${c.rel}：首行不是「# 第N章　标题」，也没有 frontmatter`)
+        continue
+      }
+      if (!heading.gap.includes(IDEOGRAPHIC_SPACE)) {
+        issues.push(`${c.rel}：标题里「${heading.chapter}」和「${heading.title}」之间要用全角空格`)
+      }
+      if (heading.title !== parsed.title) {
+        issues.push(`${c.rel}：文件名的「${parsed.title}」与标题的「${heading.title}」对不上`)
+      }
+    }
+
+    const nums = [...seen.keys()].sort((a, b) => a - b)
+    for (let i = 1; i < nums.length; i++) {
+      const gap = nums[i] - nums[i - 1]
+      if (gap > 1) {
+        issues.push(`${where}第 ${nums[i - 1]} 章与第 ${nums[i]} 章之间断号，缺 ${gap - 1} 章`)
+      }
     }
   }
 
@@ -121,28 +160,26 @@ function structureIssues(files, contents) {
 }
 
 async function main() {
-  let files
+  let chapters
   try {
-    files = (await readdir(CONTENT_DIR)).filter((f) => f.endsWith('.md') && f !== '_book.md')
+    chapters = await listChapters(CONTENT_DIR)
   } catch {
     console.error(`读不到目录：${CONTENT_DIR}`)
     console.error('请在仓库根目录运行，或用 --dir=路径 指定正文目录。')
     process.exit(2)
   }
 
-  files.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }))
-
   const contents = new Map()
-  for (const file of files) {
-    contents.set(file, await readText(join(CONTENT_DIR, file)))
+  for (const c of chapters) {
+    contents.set(c.rel, await readText(join(CONTENT_DIR, c.rel)))
   }
 
   let total = 0
   let fixedFiles = 0
   const tally = new Map()
 
-  for (const file of files) {
-    const lines = contents.get(file).split('\n')
+  for (const { rel } of chapters) {
+    const lines = contents.get(rel).split('\n')
     const start = frontmatterEnd(lines)
     const hits = []
     let changed = false
@@ -163,7 +200,7 @@ async function main() {
     }
 
     if (hits.length > 0) {
-      console.log(`\n${file}`)
+      console.log(`\n${rel}`)
       for (const h of hits) {
         const mark = h.fixable ? ' ' : '!'
         const text = h.text.length > 60 ? `${h.text.slice(0, 60)}…` : h.text
@@ -173,13 +210,15 @@ async function main() {
 
     if (changed) {
       const next = lines.join('\n')
-      contents.set(file, next)
-      await writeFile(join(CONTENT_DIR, file), next, 'utf8')
+      contents.set(rel, next)
+      await writeFile(join(CONTENT_DIR, rel), next, 'utf8')
       fixedFiles++
     }
   }
 
-  const structure = structureIssues(files, contents)
+  const structure = structureIssues(chapters, contents)
+  const books = new Set(chapters.map((c) => c.dir)).size
+  const scope = books > 1 ? `${books} 部作品共 ${chapters.length} 章` : `${chapters.length} 章`
 
   console.log('\n' + '─'.repeat(52))
 
@@ -190,11 +229,11 @@ async function main() {
     for (const [label, count] of [...tally].sort((a, b) => b[1] - a[1])) {
       console.log(`  ${label}：${count} 处`)
     }
-    console.log(`  合计 ${total} 处，涉及 ${files.length} 个文件`)
+    console.log(`  合计 ${total} 处，涉及 ${chapters.length} 个文件`)
   }
 
   if (structure.length === 0) {
-    console.log(`结构检查：干净，${files.length} 章序号连续、标题与文件名一致。`)
+    console.log(`结构检查：干净，${scope}序号连续、标题与文件名一致。`)
   } else {
     console.log('结构检查：')
     for (const issue of structure) console.log(`  ! ${issue}`)

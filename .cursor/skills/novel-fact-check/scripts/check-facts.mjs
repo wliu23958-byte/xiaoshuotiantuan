@@ -17,6 +17,31 @@ const TIMELINE = '01-设定/时间线台账.md'
 /** BOM 会粘在第一行开头，让 frontmatter 的 --- 与各处标题正则全部失配 */
 const readText = async (path) => (await readFile(path, 'utf8')).replace(/^\uFEFF/, '')
 
+const byName = (a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true })
+
+/**
+ * 内容目录是两层：顶层的 .md 属于「平铺作品」，一层子目录各自是一部作品。
+ * 层数与 `src/lib/content.ts` 的加载器对齐。
+ *
+ * 早先这里只 readdir 一层，于是**凡是从应用里新建的作品全在检查之外**——
+ * 应用新建作品一定会给它建一个子目录，而这个脚本一眼都不会看那里面。
+ */
+async function listChapters(root) {
+  const out = []
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (entry.isFile()) {
+      if (entry.name.endsWith('.md') && entry.name !== '_book.md') out.push(entry.name)
+      continue
+    }
+    if (!entry.isDirectory()) continue
+    for (const sub of await readdir(join(root, entry.name), { withFileTypes: true })) {
+      if (!sub.isFile() || !sub.name.endsWith('.md') || sub.name === '_book.md') continue
+      out.push(`${entry.name}/${sub.name}`)
+    }
+  }
+  return out.sort(byName)
+}
+
 /** 末尾那根竖线是可选的，`| 甲 | 乙` 也是合法表格行，slice(1, -1) 会把「乙」砍掉 */
 const splitRow = (line) => line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
 
@@ -268,12 +293,11 @@ async function main() {
 
   let files
   try {
-    files = (await readdir(CONTENT_DIR)).filter((f) => f.endsWith('.md') && f !== '_book.md')
+    files = await listChapters(CONTENT_DIR)
   } catch {
     console.error(`读不到目录：${CONTENT_DIR}`)
     process.exit(2)
   }
-  files.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }))
 
   const contents = new Map()
   for (const file of files) contents.set(file, await readText(join(CONTENT_DIR, file)))
