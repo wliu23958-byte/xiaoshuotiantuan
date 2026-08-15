@@ -63,6 +63,12 @@ function looksLikeEntry(body) {
   return false
 }
 
+/** BOM 会粘在第一行开头，让各处标题正则全部失配 */
+const readText = async (path) => (await readFile(path, 'utf8')).replace(/^\uFEFF/, '')
+
+/** 末尾那根竖线是可选的，`| 甲 | 乙` 也是合法表格行，slice(1, -1) 会把「乙」砍掉 */
+const splitRow = (line) => line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+
 function tableRows(md, heading) {
   const lines = md.split('\n')
   const start = lines.findIndex((l) => new RegExp(`^#{2,4}\\s+${heading}`).test(l))
@@ -73,15 +79,16 @@ function tableRows(md, heading) {
     const line = lines[i].trim()
     if (/^#{2,4}\s/.test(line)) break
     if (!line.startsWith('|')) continue
-    if (/^\|[\s|:-]+\|$/.test(line)) continue
-    const cells = line.slice(1, -1).split('|').map((c) => c.trim())
+    if (/^\|[\s|:-]+$/.test(line)) continue
+    const cells = splitRow(line)
     if (!seen) { seen = true; continue }
     rows.push(cells)
   }
   return rows
 }
 
-const plain = (s) => s.replace(/\*\*/g, '').replace(/`/g, '').trim()
+/** 少写一列的行会让 cells[4] 是 undefined，那是台账的错，不该让整个脚本崩在这里 */
+const plain = (s) => (s ?? '').replace(/\*\*/g, '').replace(/`/g, '').trim()
 
 async function main() {
   let present
@@ -99,7 +106,7 @@ async function main() {
   let prevClose = null
   for (const v of VOLS) {
     if (!present.has(v.file)) { console.log(`  ${v.cn}   ${v.file} 不存在`); continue }
-    const text = await readFile(`${OUTLINE_DIR}/${v.file}`, 'utf8')
+    const text = await readText(`${OUTLINE_DIR}/${v.file}`)
     const marks = []
     for (const c of splitChapters(text)) {
       for (const h of rustOf(c.body)) marks.push({ num: c.num, value: h.value, all: h.all })
@@ -119,7 +126,7 @@ async function main() {
   const all = []
   for (const v of VOLS) {
     if (!present.has(v.file)) continue
-    const text = await readFile(`${OUTLINE_DIR}/${v.file}`, 'utf8')
+    const text = await readText(`${OUTLINE_DIR}/${v.file}`)
     for (const c of splitChapters(text)) {
       for (const h of rustOf(c.body)) all.push({ num: c.num, value: h.value })
     }
@@ -129,11 +136,17 @@ async function main() {
   for (let i = 1; i < all.length; i++) {
     if (all[i].value < all[i - 1].value) drops.push(`第 ${all[i - 1].num} 章 ${all[i - 1].value}% → 第 ${all[i].num} 章 ${all[i].value}%`)
   }
-  const peak = Math.max(...all.map((a) => a.value))
-  console.log(`\n  峰值 ${peak}%，上限 ${CAP}%，余量 ${(CAP - peak).toFixed(1)} 个百分点。`)
-  console.log(`  结算点共 ${all.length} 个。回退 ${drops.length} 处：`)
-  for (const d of drops) console.log(`    ${d}`)
-  console.log('  说明：卷五结局褪至 0 是设计内的，第四部分那次 −0.4% 也是（全书第一次血条回退）。')
+  if (all.length === 0) {
+    // Math.max() 对空数组给 -Infinity，余量那一行会打印成 Infinity，像是脚本自己疯了
+    console.log('\n  一个沾锈结算点都没解析到，峰值与单调性这一节跳过。')
+    issues.push('章纲里没有任何沾锈结算点，沾锈链核对不了')
+  } else {
+    const peak = Math.max(...all.map((a) => a.value))
+    console.log(`\n  峰值 ${peak}%，上限 ${CAP}%，余量 ${(CAP - peak).toFixed(1)} 个百分点。`)
+    console.log(`  结算点共 ${all.length} 个。回退 ${drops.length} 处：`)
+    for (const d of drops) console.log(`    ${d}`)
+    console.log('  说明：卷五结局褪至 0 是设计内的，第四部分那次 −0.4% 也是（全书第一次血条回退）。')
+  }
 
   // ── 二、入器次数（启发式） ────────────────────────
   console.log('\n\n二、入器次数（**启发式统计，只能当线索**）')
@@ -144,7 +157,7 @@ async function main() {
   let total = 0
   for (const v of VOLS) {
     if (!present.has(v.file)) continue
-    const text = await readFile(`${OUTLINE_DIR}/${v.file}`, 'utf8')
+    const text = await readText(`${OUTLINE_DIR}/${v.file}`)
     const hit = splitChapters(text).filter((c) => looksLikeEntry(c.body)).map((c) => c.num)
     total += hit.length
     const shown = hit.length > 14 ? `${hit.slice(0, 14).join(', ')} …共 ${hit.length}` : hit.join(', ') || '—'
@@ -156,7 +169,7 @@ async function main() {
   console.log('\n\n三、谜团存量')
   console.log('-'.repeat(76))
   let md
-  try { md = await readFile(MYSTERY, 'utf8') } catch { console.log('  读不到谜团台账'); return }
+  try { md = await readText(MYSTERY) } catch { console.log('  读不到谜团台账'); return }
 
   const groups = ['A 组 · 主线与身份', 'B 组 · 沈鹤年', 'C 组 · 规则', 'D 组 · 工具箱盖', 'E 组 · 姜宁', 'F 组 · 周维', 'G 组 · 名单']
   const rows = []
@@ -166,7 +179,7 @@ async function main() {
   console.log('\n  编号  解答章                     状态')
   for (const cells of rows) {
     const id = plain(cells[0])
-    const answer = plain(cells[4] ?? '')
+    const answer = plain(cells[4])
     // 只认「NNN~NNN」区间与独立的两位以上数字；「支线 9」「与 D1 合并」里那些小数字不算章号
     const spans = [...answer.matchAll(/(\d{1,3})\s*[~～-]\s*(\d{1,3})/g)].map((m) => [Number(m[1]), Number(m[2])])
     const singles = [...answer.matchAll(/(?<![\d~～-])(\d{2,3})(?![\d~～-])/g)].map((m) => Number(m[1]))

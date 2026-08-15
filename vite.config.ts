@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -67,16 +68,34 @@ async function listContent() {
   return items
 }
 
+const BODY_LIMIT = 2_000_000
+
 function readBody(req: Connect.IncomingMessage) {
   return new Promise<unknown>((done, fail) => {
-    let raw = ''
-    req.on('data', (chunk) => {
-      raw += chunk
-      if (raw.length > 2_000_000) fail(new Error('请求体过大'))
+    // 攒 Buffer 而不是 raw += chunk：后者按分片逐个解码，一个汉字正好被切在分片
+    // 边界上就会解成乱码，而整章正文必然跨界。拼完再一次性解。
+    const chunks: Buffer[] = []
+    let size = 0
+    let stopped = false
+
+    req.on('data', (chunk: Buffer) => {
+      if (stopped) return
+      size += chunk.length
+      if (size > BODY_LIMIT) {
+        // 只 reject 是拦不住的，流还在继续往数组里灌。得把它按停并把已收的丢掉，
+        // 否则超限之后内存照样跟着请求体一起涨。
+        stopped = true
+        chunks.length = 0
+        req.pause()
+        fail(new Error('请求体过大'))
+        return
+      }
+      chunks.push(chunk)
     })
     req.on('end', () => {
+      if (stopped) return
       try {
-        done(JSON.parse(raw || '{}'))
+        done(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'))
       } catch {
         fail(new Error('请求体不是合法 JSON'))
       }

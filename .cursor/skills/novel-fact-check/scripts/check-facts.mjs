@@ -14,6 +14,12 @@ const CONTENT_DIR = dirArg ? dirArg.slice('--dir='.length) : '03-正文'
 const GLOSSARY = '01-设定/名词表.md'
 const TIMELINE = '01-设定/时间线台账.md'
 
+/** BOM 会粘在第一行开头，让 frontmatter 的 --- 与各处标题正则全部失配 */
+const readText = async (path) => (await readFile(path, 'utf8')).replace(/^\uFEFF/, '')
+
+/** 末尾那根竖线是可选的，`| 甲 | 乙` 也是合法表格行，slice(1, -1) 会把「乙」砍掉 */
+const splitRow = (line) => line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+
 /** 取某个 ## 或 ### 标题下面的表格数据行，返回二维数组（已去掉表头与分隔行） */
 function tableUnder(markdown, heading) {
   const lines = markdown.split('\n')
@@ -26,8 +32,8 @@ function tableUnder(markdown, heading) {
     const line = lines[i].trim()
     if (/^#{2,3}\s/.test(line)) break
     if (!line.startsWith('|')) continue
-    if (/^\|[\s|:-]+\|$/.test(line)) continue
-    const cells = line.slice(1, -1).split('|').map((c) => c.trim())
+    if (/^\|[\s|:-]+$/.test(line)) continue
+    const cells = splitRow(line)
     if (!seenHeader) {
       seenHeader = true
       continue
@@ -37,8 +43,11 @@ function tableUnder(markdown, heading) {
   return rows
 }
 
-/** 去掉 markdown 强调符号，表格里写了 **五年** 时要能取到「五年」 */
-const plain = (s) => s.replace(/\*\*/g, '').replace(/`/g, '').trim()
+/**
+ * 去掉 markdown 强调符号，表格里写了 **五年** 时要能取到「五年」。
+ * 少写一列的行会让 row[2] 是 undefined，那是台账的错，不该让整个脚本崩在这里。
+ */
+const plain = (s) => (s ?? '').replace(/\*\*/g, '').replace(/`/g, '').trim()
 
 function frontmatterEnd(lines) {
   if (lines[0]?.trim() !== '---') return 0
@@ -199,7 +208,7 @@ function checkRustCurve(rows) {
 async function main() {
   let glossary
   try {
-    glossary = await readFile(GLOSSARY, 'utf8')
+    glossary = await readText(GLOSSARY)
   } catch {
     console.error(`读不到名词表：${GLOSSARY}`)
     console.error('请在仓库根目录运行。')
@@ -224,7 +233,7 @@ async function main() {
 
   let years = new Set()
   try {
-    const timeline = await readFile(TIMELINE, 'utf8')
+    const timeline = await readText(TIMELINE)
     years = collectYears(timeline)
   } catch {
     console.error(`读不到时间线台账：${TIMELINE}，跳过年份检查。`)
@@ -240,7 +249,7 @@ async function main() {
   files.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }))
 
   const contents = new Map()
-  for (const file of files) contents.set(file, await readFile(join(CONTENT_DIR, file), 'utf8'))
+  for (const file of files) contents.set(file, await readText(join(CONTENT_DIR, file)))
 
   const groups = [
     ['禁用词', checkBanned(files, contents, banned)],

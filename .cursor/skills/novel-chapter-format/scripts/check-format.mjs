@@ -12,6 +12,9 @@ const CONTENT_DIR = dirArg ? dirArg.slice('--dir='.length) : '03-正文'
 const SCENE_BREAK = '※　※　※'
 const IDEOGRAPHIC_SPACE = '\u3000'
 
+/** BOM 会粘在首行开头，让 frontmatter 的 --- 与「# 第N章」双双失配，报一堆假的结构问题 */
+const readText = async (path) => (await readFile(path, 'utf8')).replace(/^\uFEFF/, '')
+
 const DECORATION_RULES = [
   {
     label: '加粗',
@@ -131,7 +134,7 @@ async function main() {
 
   const contents = new Map()
   for (const file of files) {
-    contents.set(file, await readFile(join(CONTENT_DIR, file), 'utf8'))
+    contents.set(file, await readText(join(CONTENT_DIR, file)))
   }
 
   let total = 0

@@ -29,6 +29,12 @@ const VOLUMES = [
 
 const REQUIRED = ['场景', '出场', '信息增量', '不许泄露', '章末钩子']
 
+/** BOM 会粘在第一行开头，让 frontmatter 的 --- 与各处标题正则全部失配 */
+const readText = async (path) => (await readFile(path, 'utf8')).replace(/^\uFEFF/, '')
+
+/** 末尾那根竖线是可选的，`| 甲 | 乙` 也是合法表格行，slice(1, -1) 会把「乙」砍掉 */
+const splitRow = (line) => line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+
 function tableUnder(markdown, heading) {
   const lines = markdown.split('\n')
   const start = lines.findIndex((l) => new RegExp(`^#{2,3}\\s+${heading}`).test(l))
@@ -39,15 +45,16 @@ function tableUnder(markdown, heading) {
     const line = lines[i].trim()
     if (/^#{2,3}\s/.test(line)) break
     if (!line.startsWith('|')) continue
-    if (/^\|[\s|:-]+\|$/.test(line)) continue
-    const cells = line.slice(1, -1).split('|').map((c) => c.trim())
+    if (/^\|[\s|:-]+$/.test(line)) continue
+    const cells = splitRow(line)
     if (!seenHeader) { seenHeader = true; continue }
     rows.push(cells)
   }
   return rows
 }
 
-const plain = (s) => s.replace(/\*\*/g, '').replace(/`/g, '').trim()
+/** 少写一列的行会让 r[1] 是 undefined，那是台账的错，不该让整个脚本崩在这里 */
+const plain = (s) => (s ?? '').replace(/\*\*/g, '').replace(/`/g, '').trim()
 
 /** 把一份章纲切成 [{num, title, body}]，body 是到下一个章标题之前的全部文本 */
 function splitChapters(text) {
@@ -113,7 +120,7 @@ function checkVolume(name, text, lo, hi, banned) {
 async function main() {
   let banned = []
   try {
-    const glossary = await readFile(GLOSSARY, 'utf8')
+    const glossary = await readText(GLOSSARY)
     banned = tableUnder(glossary, '禁用词').map((r) => ({ word: plain(r[0]), reason: plain(r[1]) }))
   } catch {
     console.error(`读不到名词表：${GLOSSARY}，跳过禁用词检查。`)
@@ -138,7 +145,7 @@ async function main() {
       all.push(msg)
       continue
     }
-    const text = await readFile(join(OUTLINE_DIR, vol.file), 'utf8')
+    const text = await readText(join(OUTLINE_DIR, vol.file))
     const issues = checkVolume(vol.file, text, vol.lo, vol.hi, banned)
     stats.push({
       file: vol.file,
