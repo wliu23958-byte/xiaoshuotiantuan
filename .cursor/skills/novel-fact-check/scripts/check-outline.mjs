@@ -56,7 +56,17 @@ function tableUnder(markdown, heading) {
 /** 少写一列的行会让 r[1] 是 undefined，那是台账的错，不该让整个脚本崩在这里 */
 const plain = (s) => (s ?? '').replace(/\*\*/g, '').replace(/`/g, '').trim()
 
-/** 把一份章纲切成 [{num, title, body}]，body 是到下一个章标题之前的全部文本 */
+/**
+ * 把一份章纲切成 [{num, title, body}]。
+ *
+ * **章体在下一个小节标题处截断**，不能只在下一个章标题处截断——否则单元之间那些
+ * 带沾锈的小节头（「## 支线单元 3 · 补过的碗（111~120 章）… 沾锈：7.8% → 8.2%」）
+ * 会被算进上一章的正文，下面那条「中间章不许出现沾锈数值」就会报一条不存在的问题。
+ * 这与 `book-ledger.mjs` 的切法一致；两个脚本读同一批文件，边界不能各是各的。
+ *
+ * 实测当前有三章（110、230、412）会多吃到后面单元头里的沾锈值，三章恰好都是单元
+ * 收束章、body 里带「收束」二字，所以旧切法零误报——那是巧合，不是设计。
+ */
 function splitChapters(text) {
   const lines = text.split('\n')
   const marks = []
@@ -64,10 +74,18 @@ function splitChapters(text) {
     const m = /^#{2,4}\s*第\s*(\d+)\s*章\s*[｜|]\s*(.+?)\s*$/.exec(lines[i])
     if (m) marks.push({ num: Number(m[1]), title: m[2], line: i })
   }
-  return marks.map((mk, i) => ({
-    ...mk,
-    body: lines.slice(mk.line + 1, i + 1 < marks.length ? marks[i + 1].line : lines.length).join('\n'),
-  }))
+  return marks.map((mk, i) => {
+    const hardEnd = i + 1 < marks.length ? marks[i + 1].line : lines.length
+    let end = hardEnd
+    for (let j = mk.line + 1; j < hardEnd; j++) {
+      const l = lines[j].trim()
+      if (/^#{1,3}\s/.test(l) || l === '---') {
+        end = j
+        break
+      }
+    }
+    return { ...mk, body: lines.slice(mk.line + 1, end).join('\n') }
+  })
 }
 
 function checkVolume(name, text, lo, hi, banned) {
