@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 全书总账。三张表一次算清：沾锈链、入器次数、谜团存量。
+// 全书总账。四张表一次算清：沾锈链、入器次数、谜团存量、入器台账的落点缺格。
 //
 // 为什么要有这个：前三个脚本各管一段——check-format 管排版、check-facts 管正文事实、
 // check-outline 管章纲合不合格。可「全书这条血条接不接得上」「谜团是不是都有解答章」
@@ -10,6 +10,8 @@ import { readFile, readdir } from 'node:fs/promises'
 
 const OUTLINE_DIR = '02-大纲/章纲'
 const MYSTERY = '02-大纲/谜团台账.md'
+const TIMELINE = '01-设定/时间线台账.md'
+const CONTENT_DIR = '03-正文'
 const CAP = 30 // 沾锈上限，过了就成器
 
 /**
@@ -128,6 +130,61 @@ function tableRows(md, heading) {
 /** 少写一列的行会让 cells[4] 是 undefined，那是台账的错，不该让整个脚本崩在这里 */
 const plain = (s) => (s ?? '').replace(/\*\*/g, '').replace(/`/g, '').trim()
 
+/** 正文写到第几章了。落点欠账只对已经写到的章节较真，后面的只算待办 */
+async function draftFrontier() {
+  let files
+  try { files = await readdir(CONTENT_DIR) } catch { return 0 }
+  let max = 0
+  for (const f of files) {
+    const m = /^第(\d+)章-/.exec(f)
+    if (m) max = Math.max(max, Number(m[1]))
+  }
+  return max
+}
+
+/**
+ * 解析时间线台账里的入器台账，只取「### 卷X · …」那几节的表。
+ * 同一节里还有分卷合计、与结算点对账、与启发式的差几张列头完全不同的表，
+ * 一起收进来就全乱了，所以按小节标题筛。
+ */
+function entryLedgerRows(md) {
+  const lines = md.split('\n')
+  const start = lines.findIndex((l) => /^##\s+入器台账/.test(l))
+  if (start === -1) return null
+  const rows = []
+  let inVolume = false
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (/^##\s/.test(line)) break
+    if (/^###\s/.test(line)) {
+      inVolume = /^###\s*卷[一二三四五]\s*[·・]/.test(line)
+      continue
+    }
+    if (!inVolume || !line.startsWith('|')) continue
+    if (/^\|[\s|:-]+$/.test(line)) continue
+    const cells = splitRow(line)
+    if (cells.length < 7 || plain(cells[0]) === '序') continue
+    rows.push({ seq: plain(cells[0]), chapter: plain(cells[1]), landing: plain(cells.at(-1)) })
+  }
+  return rows
+}
+
+/**
+ * 落点还没定的行。「同上」跟着上一行走；破折号在这张表里是「不适用」的写法
+ * （序 55~57 的「借用的身体」列也这么用），不是没填，别把它算成欠账。
+ */
+function landingGaps(rows) {
+  const out = []
+  let prevResolved = true
+  for (const r of rows) {
+    const unresolved = r.landing === '' || /^(待定|未定)/.test(r.landing)
+    const resolved = r.landing === '同上' ? prevResolved : !unresolved
+    prevResolved = resolved
+    if (!resolved) out.push(r)
+  }
+  return out
+}
+
 async function main() {
   let present
   try { present = new Set(await readdir(OUTLINE_DIR)) } catch { present = new Set() }
@@ -245,6 +302,34 @@ async function main() {
       console.log(`  ${id.padEnd(5)} ${answer.slice(0, 26).padEnd(28)}${flag}`)
     }
     console.log(`\n  共 ${rows.length} 条谜团。`)
+  }
+
+  // ── 四、入器台账的落点缺格 ──────────────────────
+  console.log('\n\n四、入器台账 · 落点缺格')
+  console.log('-'.repeat(76))
+  let timeline = null
+  try { timeline = await readText(TIMELINE) } catch { /* 下面按缺文件处理 */ }
+  const entries = timeline === null ? null : entryLedgerRows(timeline)
+  if (entries === null) {
+    console.log(`  ${TIMELINE} 里没有「入器台账」这一节，跳过。`)
+  } else {
+    const frontier = await draftFrontier()
+    const gaps = landingGaps(entries)
+    // 还没写到的章节留着空格是正常的，写到了还空着才是欠账——这样它自己会挑时候叫
+    const due = gaps.filter((g) => /^\d+$/.test(g.chapter) && Number(g.chapter) <= frontier)
+    const later = gaps.filter((g) => !due.includes(g))
+    console.log(`  台账 ${entries.length} 行，正文写到第 ${frontier} 章。`)
+    if (gaps.length === 0) {
+      console.log('  落点全部填好了。')
+    } else {
+      const where = (g) => (/^\d+$/.test(g.chapter) ? `第 ${g.chapter} 章` : g.chapter)
+      console.log(`  落点还空着 ${gaps.length} 处，其中 ${due.length} 处正文已经写到：`)
+      for (const g of due) console.log(`    ★ 序 ${g.seq}（${where(g)}）${g.landing || '空'}`)
+      for (const g of later) console.log(`      序 ${g.seq}（${where(g)}）${g.landing || '空'}`)
+      for (const g of due) {
+        issues.push(`入器台账序 ${g.seq}（第 ${g.chapter} 章）落点还没定，可正文已经写到第 ${frontier} 章`)
+      }
+    }
   }
 
   // ── 结论 ───────────────────────────────────────
