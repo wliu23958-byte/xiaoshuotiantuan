@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Chapter, Novel } from '../types'
 import { countWords, formatWordCount } from '../lib/utils'
+import { contentPath } from '../lib/content'
 
 interface Props {
   novel: Novel
@@ -61,7 +62,7 @@ export function ChapterEditorView({ novel, chapter, onBack, onRead, onChange }: 
           ← {novel.title}
         </button>
         <span className={`save-hint ${dirty ? 'saving' : ''}`}>
-          {dirty ? '正在写入…' : `已写入 正文/${novel.dir}/${chapter.file}`}
+          {dirty ? '正在写入…' : `已写入 ${contentPath(novel.dir, chapter.file)}`}
         </span>
         <div className="topbar-actions">
           <button className="btn ghost" onClick={onRead}>

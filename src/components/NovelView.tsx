@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Novel, Progress } from '../types'
 import { BookCover } from './BookCover'
 import { countWords, formatDate, formatWordCount, novelWordCount } from '../lib/utils'
-import { labelByStatus } from '../lib/content'
+import { contentPath, labelByStatus } from '../lib/content'
 import { canEdit } from '../lib/api'
 
 interface Props {
@@ -30,6 +30,13 @@ export function NovelView({
 }: Props) {
   const [newTitle, setNewTitle] = useState('')
 
+  // 每敲一个字都会重渲染这个组件，字数得跟着章节内容缓存，不能每次都对全书重跑一遍正则
+  const chapterWords = useMemo(
+    () => new Map(novel.chapters.map((c) => [c.id, countWords(c.content)])),
+    [novel.chapters],
+  )
+  const totalWords = useMemo(() => novelWordCount(novel), [novel])
+
   const addChapter = () => {
     const title = newTitle.trim() || `第 ${novel.chapters.length + 1} 章`
     onAddChapter(title)
@@ -42,7 +49,7 @@ export function NovelView({
         <button className="btn ghost" onClick={onBack}>
           ← 书架
         </button>
-        <span className="path-hint">正文/{novel.dir}/</span>
+        <span className="path-hint">{contentPath(novel.dir)}/</span>
         {canEdit && (
           <div className="topbar-actions">
             <button className="btn ghost" onClick={onEditNovel}>
@@ -50,10 +57,13 @@ export function NovelView({
             </button>
             <button
               className="btn danger"
+              // 平铺作品没有自己的目录，删它等于清空内容根目录，服务端会拒
+              disabled={!novel.dir}
+              title={novel.dir ? undefined : '这部作品直接摊在内容根目录下，没有自己的目录，删不了'}
               onClick={() => {
                 if (
                   confirm(
-                    `删除《${novel.title}》会连同 正文/${novel.dir}/ 整个目录一起删掉，共 ${novel.chapters.length} 章。继续？`,
+                    `删除《${novel.title}》会连同 ${contentPath(novel.dir)}/ 整个目录一起删掉，共 ${novel.chapters.length} 章。继续？`,
                   )
                 ) {
                   onRemoveNovel()
@@ -91,7 +101,7 @@ export function NovelView({
                 </div>
                 <div>
                   <dt>字数</dt>
-                  <dd>{formatWordCount(novelWordCount(novel))}</dd>
+                  <dd>{formatWordCount(totalWords)}</dd>
                 </div>
                 <div>
                   <dt>更新</dt>
@@ -135,7 +145,7 @@ export function NovelView({
             ) : (
               <ol className="chapter-list">
                 {novel.chapters.map((c, i) => {
-                  const words = countWords(c.content)
+                  const words = chapterWords.get(c.id) ?? 0
                   return (
                     <li key={c.id} className={progress?.chapterId === c.id ? 'current' : ''}>
                       <button className="chapter-main" onClick={() => onRead(c.id)}>
@@ -153,7 +163,8 @@ export function NovelView({
                           <button
                             className="btn ghost sm danger-text"
                             onClick={() => {
-                              if (confirm(`删除 正文/${novel.dir}/${c.file}？`)) onRemoveChapter(c.id)
+                              if (confirm(`删除 ${contentPath(novel.dir, c.file)}？`))
+                                onRemoveChapter(c.id)
                             }}
                           >
                             删除

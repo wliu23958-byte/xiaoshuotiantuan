@@ -160,11 +160,11 @@ async function main() {
 
   const groups = ['A 组 · 主线与身份', 'B 组 · 沈鹤年', 'C 组 · 规则', 'D 组 · 工具箱盖', 'E 组 · 姜宁', 'F 组 · 周维', 'G 组 · 名单']
   const rows = []
-  for (const g of groups) for (const r of tableRows(md, g)) rows.push({ group: g.split(' ')[0], cells: r })
+  for (const g of groups) for (const r of tableRows(md, g)) rows.push(r)
 
   const openItems = []
   console.log('\n  编号  解答章                     状态')
-  for (const { group, cells } of rows) {
+  for (const cells of rows) {
     const id = plain(cells[0])
     const answer = plain(cells[4] ?? '')
     // 只认「NNN~NNN」区间与独立的两位以上数字；「支线 9」「与 D1 合并」里那些小数字不算章号

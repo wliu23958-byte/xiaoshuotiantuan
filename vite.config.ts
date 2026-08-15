@@ -25,6 +25,16 @@ function resolveDir(value: unknown) {
   return name ? join(CONTENT_DIR, name) : null
 }
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+function isLocalOrigin(origin: string) {
+  try {
+    return LOCAL_HOSTS.has(new URL(origin).hostname)
+  } catch {
+    return false
+  }
+}
+
 /** 键与 import.meta.glob 对齐，前端两条数据来源可以共用同一个解析函数 */
 async function listContent() {
   const items: { path: string; text: string }[] = []
@@ -90,6 +100,12 @@ function contentWriter(): Plugin {
           res.end(message)
         }
 
+        // 开发时浏览器里的任意页面都能往 localhost 发跨源请求，副作用会在 CORS 拦下响应之前
+        // 就已经落盘。所以要在入口挡住：非本机来源直接拒，POST 强制 application/json
+        // ——跨源发这个 Content-Type 会触发预检，而预检过不去。
+        const { origin } = req.headers
+        if (origin && !isLocalOrigin(origin)) return fail(403, '拒绝跨源请求')
+
         if (req.method === 'GET' && req.url?.startsWith('/list')) {
           void listContent().then(
             (items) => {
@@ -102,6 +118,9 @@ function contentWriter(): Plugin {
         }
 
         if (req.method !== 'POST') return next()
+        if (!req.headers['content-type']?.includes('application/json')) {
+          return fail(415, '写入接口只接受 application/json')
+        }
 
         void (async () => {
           try {

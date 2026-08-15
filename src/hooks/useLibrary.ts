@@ -20,11 +20,12 @@ export function useLibrary() {
     saveReadingState(reading)
   }, [reading])
 
-  const reload = useCallback(async () => {
+  /** keepError 供写失败后的重建使用：那条写入错误要留在界面上，别被这次成功的读取抹掉 */
+  const reload = useCallback(async (keepError = false) => {
     if (!canEdit) return
     try {
       setNovels(loadNovels(await contentApi.list()))
-      setError('')
+      if (!keepError) setError('')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '读取 正文/ 目录失败')
     } finally {
@@ -36,13 +37,22 @@ export function useLibrary() {
     void reload()
   }, [reload])
 
-  /** 磁盘写失败时不要让界面停在一个假的成功态上 */
-  const guard = useCallback((run: Promise<unknown>) => {
-    run.then(
-      () => setError(''),
-      (e: unknown) => setError(e instanceof Error ? e.message : '写入 正文/ 目录失败'),
-    )
-  }, [])
+  /**
+   * 每个改动都是先改界面再写盘。写失败时光弹个提示不够——界面已经停在一个假的成功态上了，
+   * 得按磁盘的实际内容重建，否则用户看到的书架和盘上的文件会一直对不上。
+   */
+  const guard = useCallback(
+    (run: Promise<unknown>) => {
+      run.then(
+        () => setError(''),
+        (e: unknown) => {
+          setError(e instanceof Error ? e.message : '写入 正文/ 目录失败')
+          void reload(true)
+        },
+      )
+    },
+    [reload],
+  )
 
   const patchNovel = useCallback((id: string, fn: (novel: Novel) => Novel) => {
     setNovels((prev) => prev.map((n) => (n.id === id ? { ...fn(n), updatedAt: Date.now() } : n)))
@@ -78,12 +88,16 @@ export function useLibrary() {
       const target = novelsRef.current.find((n) => n.id === id)
       if (!target) return
       setNovels((prev) => prev.filter((n) => n.id !== id))
-      setReading((prev) => {
-        const progress = { ...prev.progress }
-        delete progress[id]
-        return { ...prev, progress }
-      })
-      guard(contentApi.remove(target.dir))
+      // 阅读进度等删成功了再丢。删失败时这本书会被重新读回来，进度不该跟着陪葬
+      guard(
+        contentApi.remove(target.dir).then(() => {
+          setReading((prev) => {
+            const progress = { ...prev.progress }
+            delete progress[id]
+            return { ...prev, progress }
+          })
+        }),
+      )
     },
     [guard],
   )

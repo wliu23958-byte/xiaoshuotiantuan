@@ -29,6 +29,11 @@ export function novelId(dir: string) {
   return `f:${dir}`
 }
 
+/** 平铺作品的 dir 是空串，直接插进模板会拼出 03-正文// 这种多一道斜杠的路径 */
+export function contentPath(dir: string, file?: string) {
+  return [CONTENT_ROOT, dir, file].filter(Boolean).join('/')
+}
+
 function chapterId(dir: string, file: string) {
   return `f:${dir}/${file}`
 }

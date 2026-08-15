@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Chapter, Novel, ReaderSettings, ReaderTheme } from '../types'
 import { splitEmphasis, toBlocks } from '../lib/utils'
 
@@ -44,13 +44,18 @@ export function ReaderView({
   const saveTimer = useRef(0)
   const entryChapterId = useRef(chapter.id)
   const entryRatioRef = useRef(entryRatio)
+  // 已经滚到、但那次防抖还没到点的位置
+  const pending = useRef<{ chapterId: string; ratio: number } | null>(null)
+  const report = useRef(onProgress)
+  report.current = onProgress
   const [ratio, setRatio] = useState(entryRatio)
   const [panel, setPanel] = useState<'none' | 'toc' | 'settings'>('none')
 
   const index = novel.chapters.findIndex((c) => c.id === chapter.id)
   const prev = index > 0 ? novel.chapters[index - 1] : null
   const next = index < novel.chapters.length - 1 ? novel.chapters[index + 1] : null
-  const blocks = toBlocks(chapter.content)
+  // 每个滚动事件都会 setRatio 触发重渲染，不缓存的话滚一下就把整章重新解析一遍
+  const blocks = useMemo(() => toBlocks(chapter.content), [chapter.content])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -77,7 +82,14 @@ export function ReaderView({
     return () => window.removeEventListener('keydown', onKey)
   }, [onBack, onNavigate, prev, next, panel])
 
-  useEffect(() => () => window.clearTimeout(saveTimer.current), [])
+  // 离开阅读器时把还没到点的那次进度补上，否则最后 300ms 内滚到的位置会跟着定时器一起被清掉
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(saveTimer.current)
+      const last = pending.current
+      if (last) report.current(last.chapterId, last.ratio)
+    }
+  }, [])
 
   const handleScroll = () => {
     const el = scrollRef.current
@@ -85,8 +97,12 @@ export function ReaderView({
     const max = el.scrollHeight - el.clientHeight
     const value = max > 0 ? Math.min(1, Math.max(0, el.scrollTop / max)) : 0
     setRatio(value)
+    pending.current = { chapterId: chapter.id, ratio: value }
     window.clearTimeout(saveTimer.current)
-    saveTimer.current = window.setTimeout(() => onProgress(chapter.id, value), 300)
+    saveTimer.current = window.setTimeout(() => {
+      pending.current = null
+      onProgress(chapter.id, value)
+    }, 300)
   }
 
   return (

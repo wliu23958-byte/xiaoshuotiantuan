@@ -7,7 +7,13 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "npm run check:format && npm run check:facts && npm run check:outline && npm run check:ledger",
+    "check:format": "node .cursor/skills/novel-chapter-format/scripts/check-format.mjs",
+    "check:facts": "node .cursor/skills/novel-fact-check/scripts/check-facts.mjs",
+    "check:outline": "node .cursor/skills/novel-fact-check/scripts/check-outline.mjs",
+    "check:ledger": "node .cursor/skills/novel-fact-check/scripts/book-ledger.mjs",
+    "inventory": "node .cursor/skills/novel-fact-check/scripts/outline-inventory.mjs"
   },
   "dependencies": {
     "react": "^19.2.8",

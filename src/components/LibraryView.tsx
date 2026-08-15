@@ -61,7 +61,15 @@ export function LibraryView({
       .slice(0, 3)
   }, [novels, progress])
 
-  const totalWords = novels.reduce((sum, n) => sum + novelWordCount(n), 0)
+  // 搜索框每敲一个字都会重渲染，字数只跟着 novels 变，不能让它跟着按键对全书重跑正则
+  const wordCounts = useMemo(
+    () => new Map(novels.map((n) => [n.id, novelWordCount(n)])),
+    [novels],
+  )
+  const totalWords = useMemo(
+    () => [...wordCounts.values()].reduce((sum, n) => sum + n, 0),
+    [wordCounts],
+  )
 
   return (
     <div className="view">
@@ -196,7 +204,7 @@ export function LibraryView({
                       </div>
                       <footer className="card-foot">
                         <span>{novel.chapters.length} 章</span>
-                        <span>{formatWordCount(novelWordCount(novel))}</span>
+                        <span>{formatWordCount(wordCounts.get(novel.id) ?? 0)}</span>
                         <span>{formatDate(novel.updatedAt)}更新</span>
                       </footer>
                     </div>
