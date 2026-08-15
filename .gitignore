@@ -33,3 +33,4 @@ dist-ssr
 /_scratch-*
 /_f*.txt
 /_s*.txt
+/.tmp-*
