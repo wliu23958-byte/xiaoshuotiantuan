@@ -180,27 +180,54 @@ function checkShenNames(files, contents, known) {
   return hits
 }
 
-/** 沾锈必须单调不减。这是全书唯一的倒计时，回跳就是硬伤 */
+/**
+ * 沾锈那一格的两种写法：`26.6` 是普通结算值，`↓26.6` 是设计内的回退。
+ * 标记写在名词表里而不是写在这个脚本里——那张表自己开头就说了，
+ * 想加一条检查去表里加一行，不要改脚本。
+ */
+function parseRust(cell) {
+  const text = plain(cell)
+  if (text === '-' || text === '') return null
+  const planned = text.startsWith('↓')
+  // 保留原样的数字文本："3.0" 不能被 Number 化成 "3"，否则正文里的 3.0% 就查无登记了
+  const value = (planned ? text.slice(1) : text).trim()
+  return { raw: text, value, planned, num: Number(value) }
+}
+
+/**
+ * 沾锈必须单调不减。这是全书唯一的倒计时，回跳就是硬伤——
+ * 但卷五「放一个人出来就退掉一个人的账」那几次是 C4 的兑现，是设计内的。
+ * 那种行在沾锈格里写成 ↓X 就放行；没标的下降照旧报错，报错时把标记的写法一并告诉他，
+ * 免得看见「沾锈回跳」的第一反应是去把那个数改掉。
+ */
 function checkRustCurve(rows) {
   const issues = []
   let prev = null
   let prevSeq = null
+  let planned = 0
   for (const row of rows) {
     const seq = plain(row[0])
-    const value = plain(row[2])
-    if (value === '-' || value === '') continue
-    const num = Number(value)
-    if (Number.isNaN(num)) {
-      issues.push(`沾锈台账第 ${seq} 次的值「${value}」不是数字`)
+    const cell = parseRust(row[2])
+    if (!cell) continue
+    if (Number.isNaN(cell.num)) {
+      issues.push(`沾锈台账第 ${seq} 次的值「${cell.raw}」不是数字`)
       continue
     }
-    if (prev !== null && num < prev) {
-      issues.push(`沾锈回跳：第 ${prevSeq} 次是 ${prev}%，第 ${seq} 次却降到 ${num}%`)
+    if (prev !== null && cell.planned) {
+      planned++
+      if (cell.num >= prev) {
+        issues.push(`沾锈台账第 ${seq} 次标了回退「${cell.raw}」，可 ${cell.num}% 并不比第 ${prevSeq} 次的 ${prev}% 低`)
+      }
+    } else if (prev !== null && cell.num < prev) {
+      issues.push(
+        `沾锈回跳：第 ${prevSeq} 次是 ${prev}%，第 ${seq} 次却降到 ${cell.num}%。` +
+          `若这是设计内的回退（卷五放人退账那种），把这一格写成「↓${cell.value}」，机检就认它——不要去改这个数`,
+      )
     }
-    prev = num
+    prev = cell.num
     prevSeq = seq
   }
-  return issues
+  return { issues, planned }
 }
 
 // ── 主流程 ────────────────────────────────────────────
@@ -227,8 +254,8 @@ async function main() {
     }
   }
   for (const row of rustRows) {
-    const v = plain(row[2])
-    if (v !== '-' && v !== '') percents.add(v)
+    const cell = parseRust(row[2])
+    if (cell) percents.add(cell.value)
   }
 
   let years = new Set()
@@ -259,7 +286,8 @@ async function main() {
     ['人名', checkShenNames(files, contents, people)],
   ]
 
-  const curveIssues = checkRustCurve(rustRows)
+  const curve = checkRustCurve(rustRows)
+  const curveIssues = curve.issues
   let total = curveIssues.length
 
   for (const [label, hits] of groups) {
@@ -282,6 +310,9 @@ async function main() {
   if (total === 0) {
     console.log(`事实检查：干净。${files.length} 章，对照名词表 ${banned.length} 条禁用词、`)
     console.log(`          ${people.size} 个登记人物、${percents.size} 个登记数值、${years.size} 个登记年份。`)
+    if (curve.planned > 0) {
+      console.log(`          沾锈台账里有 ${curve.planned} 处标了 ↓ 的设计内回退，已放行。`)
+    }
   } else {
     console.log(`事实检查：${total} 处需要处理。`)
     console.log('若某一处确实是对的，去 01-设定/名词表.md 把它登记进去，不要改脚本。')
