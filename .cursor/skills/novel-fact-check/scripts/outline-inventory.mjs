@@ -25,12 +25,17 @@ const han = (s) => (s.match(/[\u4e00-\u9fa5]/g) ?? []).length
 /**
  * 一个「逐章条目」= 行首用 ## / ### / **加粗** 起头、后面紧跟「第 N 章」的行。
  * 正文里顺口提到的「第 218 章前后」不算，它既不在行首也不带标记。
+ *
+ * 「第 N 章」后面还必须收口——跟「｜标题」、跟「**」收粗体、或者直接到行尾。
+ * 光靠行首标记挡不住加粗写的整句话：第二卷章纲那句
+ * 「**第 34 章那条姜宁的禁令已经补进去了**，不占这张表。」
+ * 就被当成了第 121 条，让卷二凭空多出一章、还多报一条五字段全缺。
  */
 function entries(text) {
   const lines = text.split('\n')
   const marks = []
   for (let i = 0; i < lines.length; i++) {
-    const m = /^(?:#{2,4}\s*|\*\*)第\s*(\d+)\s*章/.exec(lines[i].trim())
+    const m = /^(?:#{2,4}\s*|\*\*)第\s*(\d+)\s*章\s*(?:[｜|：:]|\*\*|$)/.exec(lines[i].trim())
     if (m) marks.push({ num: Number(m[1]), line: i })
   }
   return marks.map((mk, i) => ({
