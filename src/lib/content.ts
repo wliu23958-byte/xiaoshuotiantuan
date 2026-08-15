@@ -44,6 +44,14 @@ function parseDate(value: string | undefined, fallback: number) {
   return Number.isNaN(ts) ? fallback : ts
 }
 
+/** 色调 0 是正红。写成 `Number(x) || 214` 的话，唯独这一个色相取不到 */
+function parseHue(value: string | undefined) {
+  const text = value?.trim()
+  if (!text) return 214
+  const hue = Number(text)
+  return Number.isFinite(hue) ? hue : 214
+}
+
 const H1 = /^#[ \t]+(.+?)[ \t]*$/
 
 /** 团队手写的章节没有 frontmatter，首行 `# 第一章 xxx` 就是标题，展示时要摘掉 */
@@ -117,7 +125,7 @@ export function loadNovels(files: Record<string, string> = bundledFiles): Novel[
         .map((t) => t.trim())
         .filter(Boolean),
       status: statusByLabel[meta.data['状态']] ?? 'draft',
-      hue: Number(meta.data['色调']) || 214,
+      hue: parseHue(meta.data['色调']),
       chapters,
       updatedAt: chapters.reduce((max, c) => Math.max(max, c.updatedAt), bookDate),
     })

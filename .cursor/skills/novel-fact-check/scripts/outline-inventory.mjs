@@ -20,7 +20,9 @@ const VOLUMES = [
 
 const REQUIRED = ['场景', '出场', '信息增量', '不许泄露', '章末钩子']
 
-const han = (s) => (s.match(/[\u4e00-\u9fa5]/g) ?? []).length
+/** 区间与 `src/lib/utils.ts` 的 countWords 一致。\u9fa5 是 Unicode 3.0 的旧上界，
+ *  两边不一致的话，阅读器报的字数和这里报的汉字数会对不上 */
+const han = (s) => (s.match(/[\u4e00-\u9fff]/g) ?? []).length
 
 /**
  * 一个「逐章条目」= 行首用 ## / ### / **加粗** 起头、后面紧跟「第 N 章」的行。

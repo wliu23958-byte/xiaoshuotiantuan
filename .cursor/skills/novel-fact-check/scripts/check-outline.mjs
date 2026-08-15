@@ -29,6 +29,10 @@ const VOLUMES = [
 
 const REQUIRED = ['场景', '出场', '信息增量', '不许泄露', '章末钩子']
 
+/** 与 `src/lib/utils.ts` 的 countWords 取同一段区间。\u9fa5 是 Unicode 3.0 的旧上界，
+ *  两边不一致的话，同一段文字阅读器报的字数和这里报的汉字数会对不上 */
+const HAN = /[\u4e00-\u9fff]/g
+
 /** BOM 会粘在第一行开头，让 frontmatter 的 --- 与各处标题正则全部失配 */
 const readText = async (path) => (await readFile(path, 'utf8')).replace(/^\uFEFF/, '')
 
@@ -170,7 +174,7 @@ async function main() {
       span: `${vol.lo}~${vol.hi}`,
       chapters: splitChapters(text).length,
       expected: vol.hi - vol.lo + 1,
-      han: (text.match(/[\u4e00-\u9fa5]/g) ?? []).length,
+      han: (text.match(HAN) ?? []).length,
     })
     if (issues.length === 0) {
       done++

@@ -14,6 +14,9 @@ const CONTENT_DIR = dirArg ? dirArg.slice('--dir='.length) : '03-正文'
 const GLOSSARY = '01-设定/名词表.md'
 const TIMELINE = '01-设定/时间线台账.md'
 
+/** 汉字区间与 `src/lib/utils.ts` 的 countWords 对齐。\u9fa5 是 Unicode 3.0 的旧上界 */
+const HAN = '\\u4e00-\\u9fff'
+
 /** BOM 会粘在第一行开头，让 frontmatter 的 --- 与各处标题正则全部失配 */
 const readText = async (path) => (await readFile(path, 'utf8')).replace(/^\uFEFF/, '')
 
@@ -82,12 +85,35 @@ function frontmatterEnd(lines) {
 
 // ── 各项检查 ──────────────────────────────────────────
 
+/**
+ * frontmatter 里唯一会被读者看见的是 标题，别的字段（更新日期之类）是元数据，
+ * 不该拿正文的规矩去套。下面几项检查一律从正文开始扫，只有禁用词额外看一眼标题。
+ */
+function titleField(lines) {
+  const end = frontmatterEnd(lines)
+  for (let i = 0; i < end; i++) {
+    const m = /^标题\s*[:：]\s*(.*)$/.exec(lines[i])
+    if (m) return { line: i + 1, text: m[1].trim() }
+  }
+  return null
+}
+
 /** 禁用词：名词表里登记过的旧说法，出现在正文即为错 */
 function checkBanned(files, contents, banned) {
   const hits = []
   for (const file of files) {
     const lines = contents.get(file).split('\n')
-    for (let i = 0; i < lines.length; i++) {
+
+    const title = titleField(lines)
+    if (title) {
+      for (const { word, reason } of banned) {
+        if (title.text.includes(word)) {
+          hits.push({ file, line: title.line, msg: `标题里有禁用词「${word}」——${reason}`, text: title.text })
+        }
+      }
+    }
+
+    for (let i = frontmatterEnd(lines); i < lines.length; i++) {
       for (const { word, reason } of banned) {
         if (lines[i].includes(word)) {
           hits.push({ file, line: i + 1, msg: `禁用词「${word}」——${reason}`, text: lines[i].trim() })
@@ -101,7 +127,7 @@ function checkBanned(files, contents, banned) {
 /** 中文之间夹半角标点。全书统一全角，混进来一个就很扎眼 */
 function checkHalfWidth(files, contents) {
   const hits = []
-  const pattern = /[\u4e00-\u9fa5][,;!?:][\u4e00-\u9fa5]/
+  const pattern = new RegExp(`[${HAN}][,;!?:][${HAN}]`)
   for (const file of files) {
     const lines = contents.get(file).split('\n')
     const start = frontmatterEnd(lines)
@@ -120,7 +146,7 @@ function checkPercents(files, contents, known) {
   const hits = []
   for (const file of files) {
     const lines = contents.get(file).split('\n')
-    for (let i = 0; i < lines.length; i++) {
+    for (let i = frontmatterEnd(lines); i < lines.length; i++) {
       for (const m of lines[i].matchAll(/(\d+(?:\.\d+)?)\s*%/g)) {
         if (!known.has(m[1])) {
           hits.push({ file, line: i + 1, msg: `未登记的百分比 ${m[1]}%`, text: lines[i].trim() })
@@ -164,7 +190,7 @@ function checkYears(files, contents, known) {
   const hits = []
   for (const file of files) {
     const lines = contents.get(file).split('\n')
-    for (let i = 0; i < lines.length; i++) {
+    for (let i = frontmatterEnd(lines); i < lines.length; i++) {
       const found = []
       for (const m of lines[i].matchAll(/(?:^|[^\d])((?:19|20)\d{2})\s*年/g)) found.push([m[1], m[1]])
       for (const m of lines[i].matchAll(CN_YEAR_IN_TEXT)) found.push([cnToArabic(m[0]), m[0]])
@@ -192,8 +218,8 @@ function checkShenNames(files, contents, known) {
   const allow = new Set(['沈家', '沈老', '沈师', '沈工'])
   for (const file of files) {
     const lines = contents.get(file).split('\n')
-    for (let i = 0; i < lines.length; i++) {
-      for (const m of lines[i].matchAll(/沈[\u4e00-\u9fa5]/g)) {
+    for (let i = frontmatterEnd(lines); i < lines.length; i++) {
+      for (const m of lines[i].matchAll(new RegExp(`沈[${HAN}]`, 'g'))) {
         const name3 = lines[i].slice(m.index, m.index + 3)
         if (known.has(name3)) continue
         if (known.has(m[0]) || allow.has(m[0])) continue
