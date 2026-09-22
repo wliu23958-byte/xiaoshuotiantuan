@@ -125,7 +125,12 @@ function checkBanned(files, contents, banned) {
   return hits
 }
 
-/** 中文之间夹半角标点。全书统一全角，混进来一个就很扎眼 */
+/**
+ * 已停用（2026-08-21）：本项移交 check-format.mjs 第十项「半角标点」。
+ * 停用原因不是重复，是这一版有缺口——它要求半角标点两侧都是汉字，
+ * 所以「他说,」这种一侧是引号的抓不到。新版不看两侧，并对 HH:MM 电子钟开例外。
+ * 函数留在这里只为让人看见它曾经存在过；不要重新挂回 groups。
+ */
 function checkHalfWidth(files, contents) {
   const hits = []
   const pattern = new RegExp(`[${HAN}][,;!?:][${HAN}]`)
@@ -170,8 +175,22 @@ const AR_YEAR = /(?:19|20)\d{2}/g
  * 正文里要求年份后面跟「年」，否则「二〇一一」这种编号也会被当成年份。
  * 但台账的表格单元格写的是「| 一九五三 |」，后面没有「年」，所以读源时要放宽。
  * 两边宽严不一样是有意的，别统一。
+ *
+ * **2026-08-21 加了第二个分支：不带「年」但以「一九／二〇」起头的四位。**
+ *
+ * 起因是 `第234章:25`「一九五四、五五、五六。」——三个年份一个都没带「年」，
+ * 原来那一支一个都抓不到，而同章别处带「年」的照常被查。`01-设定/时间线台账.md:65`
+ * 已把这处盲区写死。
+ *
+ * **为什么不干脆放宽成「任意四位中文数字」**：那样「一五一十」「七七八八」这类成语会被抓进来。
+ * 全书实扫过，这两个词今天一处都没有，可它们随时会被写出来——
+ * **一条会误报的规则，代价是大家开始不看机检，那比漏报更贵。**
+ * 锁死前缀之后，误报面基本为零：中文里「一九××」「二〇××」几乎只可能是年份。
+ *
+ * **它没有关掉整个盲区，只关掉了一半，这一点必须说清楚。** 那一句里的「五五」「五六」是
+ * 两位简写，**任何以四位为单位的正则都抓不到它们**，将来还得靠人扫。
  */
-const CN_YEAR_IN_TEXT = /[〇零一二三四五六七八九]{4}(?=年)/g
+const CN_YEAR_IN_TEXT = /[〇零一二三四五六七八九]{4}(?=年)|(?:一九|二〇|二零)[〇零一二三四五六七八九]{2}/g
 const CN_YEAR_LOOSE = /[〇零一二三四五六七八九]{4}/g
 
 const cnToArabic = (s) => [...s].map((c) => CN_DIGIT[c]).join('')
@@ -214,6 +233,9 @@ const NAME_STOP = new Set(
   '在的了是也就还又都会要把被和与之说道看走来去过着能没有想问'.split(''),
 )
 
+/** 跟在这些字后面的「沈」是称呼的尾字，不是姓名的头字。 */
+const NAME_PREFIX = new Set(['小', '老'])
+
 function checkShenNames(files, contents, known) {
   const hits = []
   const allow = new Set(['沈家', '沈老', '沈师', '沈工'])
@@ -225,6 +247,9 @@ function checkShenNames(files, contents, known) {
         if (known.has(name3)) continue
         if (known.has(m[0]) || allow.has(m[0])) continue
         if (NAME_STOP.has(m[0][1])) continue
+        // 「小沈」「老沈」里的沈是名字的尾字，后面那个字不属于名字。
+        // 停用字表挡不住这一类：它只列虚词，而这里跟在后面的往往是实字（小沈手上／老沈那儿）。
+        if (NAME_PREFIX.has(lines[i][m.index - 1])) continue
         hits.push({ file, line: i + 1, msg: `未登记的沈姓称呼「${m[0]}」`, text: lines[i].trim() })
       }
     }
@@ -331,7 +356,9 @@ async function main() {
 
   const groups = [
     ['禁用词', checkBanned(files, contents, banned)],
-    ['半角标点', checkHalfWidth(files, contents)],
+    // 半角标点已移交 check-format.mjs 第十项（2026-08-21）。这里原来那一版要求半角标点
+    // 两侧都是汉字，一侧是引号就抓不到；新版不看两侧、并对 HH:MM 电子钟开例外，严格更强。
+    // 排版归排版：它与「半角引号」本来就该在同一个脚本里。不要在这里重新加回来。
     ['百分比', checkPercents(files, contents, percents)],
     ['年份', checkYears(files, contents, years)],
     ['人名', checkShenNames(files, contents, people)],

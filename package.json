@@ -13,7 +13,8 @@
     "check:facts": "node .cursor/skills/novel-fact-check/scripts/check-facts.mjs",
     "check:outline": "node .cursor/skills/novel-fact-check/scripts/check-outline.mjs",
     "check:ledger": "node .cursor/skills/novel-fact-check/scripts/book-ledger.mjs",
-    "inventory": "node .cursor/skills/novel-fact-check/scripts/outline-inventory.mjs"
+    "inventory": "node .cursor/skills/novel-fact-check/scripts/outline-inventory.mjs",
+    "export:fanqie": "node scripts/export-fanqie.mjs"
   },
   "dependencies": {
     "react": "^19.2.8",
